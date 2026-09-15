@@ -112,6 +112,8 @@ input[type="range"] { width: 100%; accent-color: var(--cyan); cursor: pointer; }
 .mode-picker strong { font-size: 12px; font-weight: 500; }
 .mode-picker small { color: var(--muted); font-size: 10px; line-height: 1.25; }
 .substep-note { margin: 12px 0 0; color: var(--muted); font-size: 10px; line-height: 1.45; }
+.speed-control.active > span { color: var(--cyan); }
+.speed-control.active input { filter: drop-shadow(0 0 4px rgba(88, 225, 211, .42)); }
 .trajectory-note { margin: 10px 0 0; padding-left: 9px; border-left: 2px solid var(--line-strong); color: var(--muted); font-size: 10px; line-height: 1.45; }
 .trajectory-note strong { color: var(--text); font-weight: 500; }
 

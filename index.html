@@ -92,12 +92,16 @@
               <span>Launch preparation <output id="replenishment-output">30 min</output></span>
               <input id="replenishment" type="range" min="0" max="180" value="30" step="5" />
             </label>
-            <label class="range-control" for="speed">
-              <span>Simulation speed <output id="speed-output">20×</output></span>
-              <input id="speed" type="range" min="1" max="100" value="20" step="1" />
+            <label class="range-control speed-control" id="idle-speed-control" for="idle-speed">
+              <span>No active tracks speed <output id="idle-speed-output">20×</output></span>
+              <input id="idle-speed" type="range" min="1" max="100" value="20" step="1" />
+            </label>
+            <label class="range-control speed-control" id="tracked-speed-control" for="tracked-speed">
+              <span>Tracked missile speed <output id="tracked-speed-output">2×</output></span>
+              <input id="tracked-speed" type="range" min="1" max="100" value="2" step="1" />
             </label>
             <p class="substep-note">Rendered at display refresh rate with ≤1 simulated-second physics steps.</p>
-            <p class="trajectory-note"><strong>Trajectory model:</strong> detection is assumed during boost/ascent by external sensors. The apex and long-range flight are not rendered; each ballistic enters this city-scale scene already tracked at 58–65 km, then accelerates along a straight terminal descent. Interceptors accelerate under power on a downward-curving path.</p>
+            <p class="trajectory-note"><strong>Trajectory model:</strong> missiles fire 400–650 km away and follow a no-drag, constant-gravity parabola. A notional external radar about 200 km from the target detects them 60–120 seconds after firing while they are still climbing; this delay is sampled, not derived from radar geometry. Pre-detection speed is hidden.</p>
           </section>
 
           <section class="cost-section">

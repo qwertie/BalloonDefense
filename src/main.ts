@@ -14,7 +14,8 @@ interface Configuration {
   altitude: number;
   attackRate: number;
   replenishmentMinutes: number;
-  speed: number;
+  idleSpeed: number;
+  trackedSpeed: number;
   mode: InterceptionMode;
 }
 
@@ -47,6 +48,8 @@ interface InterceptorVisual extends MovingObject {
   start: THREE.Vector3;
   control: THREE.Vector3;
   end: THREE.Vector3;
+  launchAt: number;
+  flightDuration: number;
 }
 
 interface Attack extends MovingObject {
@@ -55,12 +58,16 @@ interface Attack extends MovingObject {
   interceptPoint: THREE.Vector3;
   elapsed: number;
   duration: number;
+  apexAt: number;
+  detectionAt: number;
   interceptAt: number;
-  totalDistanceMeters: number;
-  initialSpeedMps: number;
-  pathAccelerationMps2: number;
+  horizontalDirection: THREE.Vector3;
+  horizontalSpeedKms: number;
+  initialVerticalSpeedKms: number;
+  gravityKms2: number;
   defended: boolean;
   detected: boolean;
+  engagementPlanned: boolean;
   interceptors: InterceptorVisual[];
 }
 
@@ -106,7 +113,8 @@ const config: Configuration = {
   altitude: 20,
   attackRate: 6,
   replenishmentMinutes: 30,
-  speed: 20,
+  idleSpeed: 20,
+  trackedSpeed: 2,
   mode: 'smart',
 };
 
@@ -152,7 +160,7 @@ const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x071014);
 scene.fog = new THREE.FogExp2(0x071014, 0.008);
 
-const camera = new THREE.PerspectiveCamera(48, 1, 0.1, 500);
+const camera = new THREE.PerspectiveCamera(48, 1, 0.1, 1200);
 camera.position.set(54, 46, 58);
 
 const controls = new OrbitControls(camera, canvas);
@@ -161,7 +169,7 @@ controls.dampingFactor = 0.07;
 controls.target.set(0, 7, 0);
 controls.maxPolarAngle = Math.PI * 0.49;
 controls.minDistance = 15;
-controls.maxDistance = 180;
+controls.maxDistance = 900;
 
 scene.add(new THREE.HemisphereLight(0xbfe8ef, 0x243019, 1.55));
 const sun = new THREE.DirectionalLight(0xfff1cc, 2.4);
@@ -556,25 +564,26 @@ function quadraticPoint(start: THREE.Vector3, control: THREE.Vector3, end: THREE
 function spawnAttack(): void {
   const target = randomCityPoint();
   const angle = Math.random() * Math.PI * 2;
-  const lateralDistance = config.cityRadius * (1.15 + Math.random() * 0.5);
+  const launchDistance = 400 + Math.random() * 250;
   const start = new THREE.Vector3(
-    target.x + Math.cos(angle) * lateralDistance,
-    Math.max(58, config.altitude + 34),
-    target.z + Math.sin(angle) * lateralDistance,
+    target.x + Math.cos(angle) * launchDistance,
+    target.y,
+    target.z + Math.sin(angle) * launchDistance,
   );
-  const duration = 30 + Math.random() * 8;
+  const gravityKms2 = 0.00981;
+  const launchAngle = THREE.MathUtils.degToRad(45 + Math.random() * 10);
+  const launchSpeedKms = Math.sqrt(launchDistance * gravityKms2 / Math.sin(2 * launchAngle));
+  const horizontalSpeedKms = launchSpeedKms * Math.cos(launchAngle);
+  const initialVerticalSpeedKms = launchSpeedKms * Math.sin(launchAngle);
+  const duration = launchDistance / horizontalSpeedKms;
+  const apexAt = initialVerticalSpeedKms / gravityKms2;
+  const detectionAt = Math.min(apexAt - 8, 60 + Math.random() * 60);
+  const horizontalDirection = target.clone().sub(start).setY(0).normalize();
   const interceptAltitude = Math.max(7, config.altitude - 4);
-  const interceptProgress = (start.y - interceptAltitude) / start.y;
-  const interceptPoint = start.clone().lerp(target, interceptProgress);
-  const totalDistanceMeters = start.distanceTo(target) * 1000;
-  const verticalShare = Math.abs(start.y - target.y) / Math.max(0.001, start.distanceTo(target));
-  const pathAccelerationMps2 = 9.81 * verticalShare;
-  const initialSpeedMps = Math.max(250, (totalDistanceMeters - 0.5 * pathAccelerationMps2 * duration * duration) / duration);
-  const interceptDistanceMeters = totalDistanceMeters * interceptProgress;
-  const interceptAt = pathAccelerationMps2 > 0.001
-    ? (-initialSpeedMps + Math.sqrt(initialSpeedMps * initialSpeedMps + 2 * pathAccelerationMps2 * interceptDistanceMeters)) / pathAccelerationMps2
-    : interceptDistanceMeters / initialSpeedMps;
-  const selected = selectBalloons(interceptPoint);
+  const altitudeDiscriminant = Math.max(0, initialVerticalSpeedKms ** 2 - 2 * gravityKms2 * (interceptAltitude - start.y));
+  const interceptAt = (initialVerticalSpeedKms + Math.sqrt(altitudeDiscriminant)) / gravityKms2;
+  const interceptPoint = start.clone().addScaledVector(horizontalDirection, horizontalSpeedKms * interceptAt);
+  interceptPoint.y = interceptAltitude;
 
   ballisticSequence += 1;
   const ballisticId = `B-${String(ballisticSequence).padStart(3, '0')}`;
@@ -585,13 +594,23 @@ function spawnAttack(): void {
   const attack: Attack = {
     telemetryId: ballisticId, kind: 'ballistic', mesh, trail, trailPoints: [start.clone()],
     lastPosition: start.clone(),
-    velocityKms: target.clone().sub(start).normalize().multiplyScalar(initialSpeedMps / 1000),
-    speedKmh: initialSpeedMps * 3.6,
-    start, target, interceptPoint, elapsed: 0, duration, interceptAt,
-    totalDistanceMeters, initialSpeedMps, pathAccelerationMps2,
-    defended: selected.length > 0, detected: true, interceptors: [],
+    velocityKms: horizontalDirection.clone().multiplyScalar(horizontalSpeedKms).setY(initialVerticalSpeedKms),
+    speedKmh: launchSpeedKms * 3600,
+    start, target, interceptPoint, elapsed: 0, duration, apexAt, detectionAt, interceptAt,
+    horizontalDirection, horizontalSpeedKms, initialVerticalSpeedKms, gravityKms2,
+    defended: false, detected: false, engagementPlanned: false, interceptors: [],
   };
 
+  attacks.push(attack);
+  logEvent(`Missile fired ${Math.round(launchDistance)} km away — awaiting external sensor track.`);
+}
+
+function planEngagement(attack: Attack): void {
+  if (attack.engagementPlanned) return;
+  attack.detected = true;
+  attack.engagementPlanned = true;
+  const selected = selectBalloons(attack.interceptPoint);
+  attack.defended = selected.length > 0;
   for (const balloon of selected) {
     interceptorSequence += 1;
     const interceptorId = `I-${String(interceptorSequence).padStart(3, '0')}`;
@@ -600,7 +619,7 @@ function spawnAttack(): void {
     interceptorMesh.position.copy(interceptorStart);
     movingGroup.add(interceptorMesh);
     const interceptorTrail = makeTrail(0xf4bc5f);
-    const direction = interceptPoint.clone().sub(interceptorStart);
+    const direction = attack.interceptPoint.clone().sub(interceptorStart);
     const control = interceptorStart.clone().addScaledVector(direction, 0.42);
     control.y -= Math.max(1.2, Math.abs(direction.y) * 0.28);
     attack.interceptors.push({
@@ -614,15 +633,18 @@ function spawnAttack(): void {
       speedKmh: 0,
       start: interceptorStart,
       control,
-      end: interceptPoint.clone(),
+      end: attack.interceptPoint.clone(),
+      launchAt: attack.elapsed,
+      flightDuration: Math.max(1, attack.interceptAt - attack.elapsed),
     });
     consumeBalloon(balloon);
   }
 
-  attacks.push(attack);
   updateCoverage();
   updateFleetStatus();
-  logEvent(selected.length ? `Incoming track — ${selected.length} interceptor${selected.length > 1 ? 's' : ''} committed.` : 'Incoming track — no ready interceptor in range.');
+  logEvent(selected.length
+    ? `Missile detected after ${Math.round(attack.detectionAt)} s — ${selected.length} interceptor${selected.length > 1 ? 's' : ''} committed.`
+    : `Missile detected after ${Math.round(attack.detectionAt)} s — no ready interceptor in range.`);
 }
 
 function spawnEffect(point: THREE.Vector3, color: number, scale = 1, initialVelocity = new THREE.Vector3()): VisualEffect {
@@ -638,7 +660,7 @@ function spawnEffect(point: THREE.Vector3, color: number, scale = 1, initialVelo
   const effect: VisualEffect = {
     mesh,
     life: 0,
-    maxLife: scale > 1 ? 1.35 : 1.0,
+    maxLife: scale > 1 ? 5.4 : 4.0,
     velocityKms: initialVelocity.clone(),
     // Quadratic drag expressed as a characteristic stopping distance.
     // Thinner air at greater altitude allows the debris cloud to coast farther.
@@ -729,18 +751,30 @@ function updateAttacks(delta: number): void {
     const attack = attacks[index];
     attack.elapsed += delta;
     const elapsed = Math.min(attack.duration, attack.elapsed);
-    const traveledMeters = attack.initialSpeedMps * elapsed + 0.5 * attack.pathAccelerationMps2 * elapsed * elapsed;
-    const progress = Math.min(1, traveledMeters / attack.totalDistanceMeters);
-    const attackPosition = attack.start.clone().lerp(attack.target, progress);
+    const attackPosition = attack.start.clone().addScaledVector(
+      attack.horizontalDirection,
+      attack.horizontalSpeedKms * elapsed,
+    );
+    attackPosition.y = Math.max(
+      attack.target.y,
+      attack.start.y + attack.initialVerticalSpeedKms * elapsed - 0.5 * attack.gravityKms2 * elapsed * elapsed,
+    );
     attack.mesh.position.copy(attackPosition);
-    attack.speedKmh = (attack.initialSpeedMps + attack.pathAccelerationMps2 * elapsed) * 3.6;
-    attack.velocityKms.copy(attack.target).sub(attack.start).normalize().multiplyScalar(attack.speedKmh / 3600);
+    attack.velocityKms.copy(attack.horizontalDirection).multiplyScalar(attack.horizontalSpeedKms);
+    attack.velocityKms.y = attack.initialVerticalSpeedKms - attack.gravityKms2 * elapsed;
+    attack.speedKmh = attack.velocityKms.length() * 3600;
     attack.lastPosition.copy(attackPosition);
     updateTrail(attack, attackPosition);
 
-    const interceptorTimeProgress = Math.min(1, attack.elapsed / attack.interceptAt);
-    const interceptorProgress = interceptorTimeProgress * interceptorTimeProgress;
+    if (!attack.detected && attack.elapsed >= attack.detectionAt) planEngagement(attack);
+
     for (const interceptor of attack.interceptors) {
+      const interceptorTimeProgress = THREE.MathUtils.clamp(
+        (attack.elapsed - interceptor.launchAt) / interceptor.flightDuration,
+        0,
+        1,
+      );
+      const interceptorProgress = interceptorTimeProgress * interceptorTimeProgress;
       const position = quadraticPoint(interceptor.start, interceptor.control, interceptor.end, interceptorProgress);
       if (delta > 0) {
         interceptor.velocityKms.copy(position).sub(interceptor.lastPosition).divideScalar(delta);
@@ -929,7 +963,12 @@ function updateCost(): void {
 
 function appendTelemetryCard(
   container: HTMLElement,
-  track: Pick<MovingObject, 'telemetryId' | 'kind' | 'speedKmh'> & { altitude: number; status: string; destroyed?: boolean },
+  track: Pick<MovingObject, 'telemetryId' | 'kind' | 'speedKmh'> & {
+    altitude: number;
+    status: string;
+    destroyed?: boolean;
+    showSpeed?: boolean;
+  },
 ): void {
   const card = document.createElement('div');
   card.className = `projectile-card ${track.kind}${track.destroyed ? ' destroyed' : ''}`;
@@ -945,9 +984,11 @@ function appendTelemetryCard(
   const speed = document.createElement('div');
   speed.className = 'projectile-speed';
   const speedValue = document.createElement('b');
-  speedValue.textContent = `${Math.round(Math.max(0, track.speedKmh)).toLocaleString()} km/h`;
+  speedValue.textContent = track.showSpeed === false
+    ? '—'
+    : `${Math.round(Math.max(0, track.speedKmh)).toLocaleString()} km/h`;
   const speedLabel = document.createElement('label');
-  speedLabel.textContent = 'Speed';
+  speedLabel.textContent = track.showSpeed === false ? 'Hidden before detection' : 'Speed';
   speed.append(speedValue, speedLabel);
 
   const altitude = document.createElement('div');
@@ -971,7 +1012,8 @@ function updateProjectileTelemetry(): void {
       kind: attack.kind,
       speedKmh: attack.speedKmh,
       altitude: attack.mesh.position.y,
-      status: attack.detected ? 'Tracked' : 'Undetected',
+      status: attack.detected ? 'Tracked' : 'Fired',
+      showSpeed: attack.detected,
     });
     count += 1;
     for (const interceptor of attack.interceptors) {
@@ -1014,7 +1056,11 @@ function resizeRenderer(): void {
 function animate(now: number): void {
   const realDelta = Math.min(0.1, (now - lastFrameTime) / 1000);
   lastFrameTime = now;
-  const simulatedDelta = paused ? 0 : realDelta * config.speed;
+  const hasActiveTracks = attacks.some((attack) => attack.detected) || expiringTelemetry.length > 0;
+  const activeSpeed = hasActiveTracks ? config.trackedSpeed : config.idleSpeed;
+  const simulatedDelta = paused ? 0 : realDelta * activeSpeed;
+  requireElement('idle-speed-control').classList.toggle('active', !hasActiveTracks);
+  requireElement('tracked-speed-control').classList.toggle('active', hasActiveTracks);
   if (!paused) {
     let remaining = simulatedDelta;
     while (remaining > 0) {
@@ -1039,7 +1085,8 @@ function updateControlOutputs(): void {
   requireElement('altitude-output').textContent = `${config.altitude} km`;
   requireElement('attack-output').textContent = `${config.attackRate} / hr`;
   requireElement('replenishment-output').textContent = `${config.replenishmentMinutes} min`;
-  requireElement('speed-output').textContent = `${config.speed}×`;
+  requireElement('idle-speed-output').textContent = `${config.idleSpeed}×`;
+  requireElement('tracked-speed-output').textContent = `${config.trackedSpeed}×`;
   requireElement('ascent-output').textContent = `${Math.round(computedAscentMinutes())} min`;
   requireElement('replacement-output').textContent = `${Math.round(config.replenishmentMinutes + computedAscentMinutes())} min`;
   requireElement('descent-output').textContent = `${Math.round(computedDescentMinutes())} min`;
@@ -1095,7 +1142,8 @@ bindRange('range', 'range', true);
 bindRange('altitude', 'altitude', true);
 bindRange('attack-rate', 'attackRate', false);
 bindRange('replenishment', 'replenishmentMinutes', false);
-bindRange('speed', 'speed', false);
+bindRange('idle-speed', 'idleSpeed', false);
+bindRange('tracked-speed', 'trackedSpeed', false);
 
 document.querySelectorAll<HTMLInputElement>('input[name="shape"]').forEach((input) => {
   input.addEventListener('change', () => {
