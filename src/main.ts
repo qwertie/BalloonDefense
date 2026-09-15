@@ -39,6 +39,7 @@ interface MovingObject {
   trail: THREE.Line;
   trailPoints: THREE.Vector3[];
   lastPosition: THREE.Vector3;
+  velocityKms: THREE.Vector3;
   speedKmh: number;
 }
 
@@ -85,6 +86,9 @@ interface VisualEffect {
   mesh: THREE.Mesh;
   life: number;
   maxLife: number;
+  velocityKms: THREE.Vector3;
+  dragLengthKm: number;
+  telemetry?: ExpiringTelemetry;
 }
 
 interface BomItem {
@@ -115,6 +119,10 @@ const defaultBom: BomItem[] = [
   { key: 'airframe', label: 'Interceptor airframe', cost: 3500, exponent: 1.1 },
   { key: 'propulsion', label: 'Interceptor propulsion', cost: 7500, exponent: 1.7 },
   { key: 'guidance', label: 'Guidance and fuzing', cost: 12000, exponent: 0.35 },
+  { key: 'integration', label: 'Production integration and acceptance', cost: 35000, exponent: 0.35 },
+  { key: 'support', label: 'Allocated ground support and spares', cost: 45000, exponent: 0.1 },
+  { key: 'engineering', label: 'Program engineering and software', cost: 60000, exponent: 0.3 },
+  { key: 'contingency', label: 'Production contingency and resilience', cost: 20000, exponent: 0.5 },
   { key: 'labor', label: 'Labor', cost: 4000, exponent: 0 },
   { key: 'profit', label: 'Profit', cost: 4000, exponent: 0 },
 ];
@@ -576,7 +584,9 @@ function spawnAttack(): void {
   const trail = makeTrail(0xff5a62);
   const attack: Attack = {
     telemetryId: ballisticId, kind: 'ballistic', mesh, trail, trailPoints: [start.clone()],
-    lastPosition: start.clone(), speedKmh: initialSpeedMps * 3.6,
+    lastPosition: start.clone(),
+    velocityKms: target.clone().sub(start).normalize().multiplyScalar(initialSpeedMps / 1000),
+    speedKmh: initialSpeedMps * 3.6,
     start, target, interceptPoint, elapsed: 0, duration, interceptAt,
     totalDistanceMeters, initialSpeedMps, pathAccelerationMps2,
     defended: selected.length > 0, detected: true, interceptors: [],
@@ -600,6 +610,7 @@ function spawnAttack(): void {
       trail: interceptorTrail,
       trailPoints: [interceptorStart.clone()],
       lastPosition: interceptorStart.clone(),
+      velocityKms: new THREE.Vector3(),
       speedKmh: 0,
       start: interceptorStart,
       control,
@@ -614,7 +625,7 @@ function spawnAttack(): void {
   logEvent(selected.length ? `Incoming track — ${selected.length} interceptor${selected.length > 1 ? 's' : ''} committed.` : 'Incoming track — no ready interceptor in range.');
 }
 
-function spawnEffect(point: THREE.Vector3, color: number, scale = 1): void {
+function spawnEffect(point: THREE.Vector3, color: number, scale = 1, initialVelocity = new THREE.Vector3()): VisualEffect {
   const material = new THREE.MeshBasicMaterial({
     color,
     transparent: true,
@@ -624,7 +635,17 @@ function spawnEffect(point: THREE.Vector3, color: number, scale = 1): void {
   const mesh = new THREE.Mesh(new THREE.IcosahedronGeometry(0.7 * scale, 2), material);
   mesh.position.copy(point);
   effectsGroup.add(mesh);
-  effects.push({ mesh, life: 0, maxLife: scale > 1 ? 1.05 : 0.8 });
+  const effect: VisualEffect = {
+    mesh,
+    life: 0,
+    maxLife: scale > 1 ? 1.05 : 0.8,
+    velocityKms: initialVelocity.clone(),
+    // Quadratic drag expressed as a characteristic stopping distance.
+    // Thinner air at greater altitude allows the debris cloud to coast farther.
+    dragLengthKm: Math.max(0.6, 0.65 + point.y * 0.09),
+  };
+  effects.push(effect);
+  return effect;
 }
 
 function removeMovingObject(object: MovingObject): void {
@@ -648,8 +669,8 @@ function resolveAttack(index: number, defended: boolean): void {
   const attack = attacks[index];
   if (defended) {
     hits += 1;
-    spawnEffect(attack.interceptPoint, 0xff6f45, 1.35);
-    expiringTelemetry.push({
+    const ballisticEffect = spawnEffect(attack.interceptPoint, 0xff6f45, 1.35, attack.velocityKms);
+    const ballisticTelemetry: ExpiringTelemetry = {
       telemetryId: attack.telemetryId,
       kind: 'ballistic',
       speedKmh: attack.speedKmh,
@@ -657,11 +678,18 @@ function resolveAttack(index: number, defended: boolean): void {
       status: 'Destroyed',
       life: 0,
       maxLife: 1.05,
-    });
+    };
+    ballisticEffect.telemetry = ballisticTelemetry;
+    expiringTelemetry.push(ballisticTelemetry);
     attack.interceptors.forEach((interceptor, interceptorIndex) => {
       const offset = new THREE.Vector3((interceptorIndex - 0.5) * 0.55, -0.15, (interceptorIndex - 0.5) * -0.35);
-      spawnEffect(attack.interceptPoint.clone().add(offset), 0xf4bc5f, 0.78);
-      expiringTelemetry.push({
+      const interceptorEffect = spawnEffect(
+        attack.interceptPoint.clone().add(offset),
+        0xf4bc5f,
+        0.78,
+        interceptor.velocityKms,
+      );
+      const interceptorTelemetry: ExpiringTelemetry = {
         telemetryId: interceptor.telemetryId,
         kind: 'interceptor',
         speedKmh: interceptor.speedKmh,
@@ -669,13 +697,15 @@ function resolveAttack(index: number, defended: boolean): void {
         status: 'Expended',
         life: 0,
         maxLife: 0.8,
-      });
+      };
+      interceptorEffect.telemetry = interceptorTelemetry;
+      expiringTelemetry.push(interceptorTelemetry);
     });
     logEvent('Ballistic intercepted below the fleet layer.');
   } else {
     misses += 1;
-    spawnEffect(attack.target, 0xff4e57, 1.65);
-    expiringTelemetry.push({
+    const impactEffect = spawnEffect(attack.target, 0xff4e57, 1.65, attack.velocityKms);
+    const impactTelemetry: ExpiringTelemetry = {
       telemetryId: attack.telemetryId,
       kind: 'ballistic',
       speedKmh: attack.speedKmh,
@@ -683,7 +713,9 @@ function resolveAttack(index: number, defended: boolean): void {
       status: 'Impact',
       life: 0,
       maxLife: 1.05,
-    });
+    };
+    impactEffect.telemetry = impactTelemetry;
+    expiringTelemetry.push(impactTelemetry);
     logEvent('Impact inside the protected area. Coverage hole exposed.');
   }
   removeMovingObject(attack);
@@ -702,6 +734,7 @@ function updateAttacks(delta: number): void {
     const attackPosition = attack.start.clone().lerp(attack.target, progress);
     attack.mesh.position.copy(attackPosition);
     attack.speedKmh = (attack.initialSpeedMps + attack.pathAccelerationMps2 * elapsed) * 3.6;
+    attack.velocityKms.copy(attack.target).sub(attack.start).normalize().multiplyScalar(attack.speedKmh / 3600);
     attack.lastPosition.copy(attackPosition);
     updateTrail(attack, attackPosition);
 
@@ -709,7 +742,10 @@ function updateAttacks(delta: number): void {
     const interceptorProgress = interceptorTimeProgress * interceptorTimeProgress;
     for (const interceptor of attack.interceptors) {
       const position = quadraticPoint(interceptor.start, interceptor.control, interceptor.end, interceptorProgress);
-      interceptor.speedKmh = delta > 0 ? interceptor.lastPosition.distanceTo(position) / delta * 3600 : interceptor.speedKmh;
+      if (delta > 0) {
+        interceptor.velocityKms.copy(position).sub(interceptor.lastPosition).divideScalar(delta);
+        interceptor.speedKmh = interceptor.velocityKms.length() * 3600;
+      }
       interceptor.mesh.position.copy(position);
       const tangent = quadraticPoint(interceptor.start, interceptor.control, interceptor.end, Math.min(1, interceptorProgress + 0.015)).sub(position).normalize();
       interceptor.mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), tangent);
@@ -800,6 +836,17 @@ function updateEffects(realDelta: number): void {
   for (let index = effects.length - 1; index >= 0; index -= 1) {
     const effect = effects[index];
     effect.life += realDelta;
+    const speedKms = effect.velocityKms.length();
+    if (speedKms > 0.0001) {
+      const dragRatio = speedKms * realDelta / effect.dragLengthKm;
+      const distanceKm = effect.dragLengthKm * Math.log1p(dragRatio);
+      effect.mesh.position.addScaledVector(effect.velocityKms, distanceKm / speedKms);
+      effect.velocityKms.multiplyScalar(1 / (1 + dragRatio));
+    }
+    if (effect.telemetry) {
+      effect.telemetry.speedKmh = effect.velocityKms.length() * 3600;
+      effect.telemetry.altitude = effect.mesh.position.y;
+    }
     const progress = effect.life / effect.maxLife;
     effect.mesh.scale.setScalar(1 + progress * 5.5);
     (effect.mesh.material as THREE.MeshBasicMaterial).opacity = Math.max(0, 0.8 * (1 - progress));
