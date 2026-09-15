@@ -1,0 +1,49 @@
+{
+  "name": "balloon-defense",
+  "version": "0.2.0",
+  "private": true,
+  "description": "Interactive 3D simulation of a stratospheric balloon interception grid",
+  "type": "module",
+  "main": "dist-electron/main.js",
+  "scripts": {
+    "build": "npm run build:renderer && npm run build:electron",
+    "build:renderer": "vite build",
+    "build:electron": "tsc -p electron/tsconfig.json",
+    "start": "npm run build && electron .",
+    "dev": "npm run build && electron .",
+    "preview": "vite preview --host 127.0.0.1",
+    "dist": "npm run build && electron-builder --win dir",
+    "portable": "npm run build && electron-builder --win portable"
+  },
+  "dependencies": {
+    "three": "^0.179.1"
+  },
+  "devDependencies": {
+    "@types/node": "^24.3.0",
+    "@types/three": "^0.179.0",
+    "electron": "^37.4.0",
+    "electron-builder": "^26.0.12",
+    "typescript": "^5.9.2",
+    "vite": "^7.1.3"
+  },
+  "build": {
+    "appId": "org.balloondefense.simulator",
+    "productName": "Balloon Defense",
+    "asar": true,
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "dist-electron/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        "dir",
+        "portable"
+      ],
+      "artifactName": "Balloon-Defense-${version}.${ext}"
+    }
+  }
+}

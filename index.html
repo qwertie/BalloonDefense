@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:;"
+    />
+    <title>Balloon Defense</title>
+  </head>
+  <body>
+    <div id="app">
+      <header class="topbar">
+        <div class="brand-block">
+          <div class="brand-mark" aria-hidden="true"><span></span><span></span><span></span></div>
+          <div>
+            <h1>Balloon Defense</h1>
+            <p>Idealized stratospheric interception simulator</p>
+          </div>
+        </div>
+        <div class="top-stats" aria-live="polite">
+          <div class="top-stat"><span>Simulation time</span><strong id="sim-time">00:00:00</strong></div>
+          <div class="top-stat"><span>Fleet status</span><strong id="fleet-status">Ready</strong></div>
+          <button class="pause-button" id="pause-button" type="button" aria-pressed="false">Pause</button>
+        </div>
+      </header>
+
+      <main class="workspace">
+        <aside class="control-panel" aria-label="Simulation controls">
+          <section class="control-section">
+            <div class="section-heading">
+              <h2>Defense geometry</h2>
+              <span class="reset-note">Geometry changes reset fleet</span>
+            </div>
+
+            <fieldset class="shape-picker">
+              <legend>City shape</legend>
+              <label><input type="radio" name="shape" value="square" /> Square</label>
+              <label><input type="radio" name="shape" value="rectangle" checked /> 3:2</label>
+              <label><input type="radio" name="shape" value="octagon" /> Octagon</label>
+            </fieldset>
+
+            <label class="range-control" for="city-radius">
+              <span>City radius <output id="city-radius-output">30 km</output></span>
+              <input id="city-radius" type="range" min="10" max="50" value="30" step="1" />
+            </label>
+            <label class="range-control" for="spacing">
+              <span>Hex spacing <output id="spacing-output">8 km</output></span>
+              <input id="spacing" type="range" min="3" max="20" value="8" step="0.5" />
+            </label>
+            <label class="range-control" for="range">
+              <span>Interceptor range <output id="range-output">10 km</output></span>
+              <input id="range" type="range" min="3" max="20" value="10" step="0.5" />
+            </label>
+            <label class="range-control" for="altitude">
+              <span>Fleet altitude <output id="altitude-output">20 km</output></span>
+              <input id="altitude" type="range" min="15" max="30" value="20" step="1" />
+            </label>
+            <div class="computed-row">
+              <span>Balloon ascent <small>5 m/s</small></span>
+              <strong id="ascent-output">67 min</strong>
+            </div>
+            <div class="computed-row">
+              <span>Replacement ready</span>
+              <strong id="replacement-output">97 min</strong>
+            </div>
+            <div class="computed-row">
+              <span>Recovery descent <small>3 m/s</small></span>
+              <strong id="descent-output">111 min</strong>
+            </div>
+          </section>
+
+          <section class="control-section">
+            <h2>Interception policy</h2>
+            <fieldset class="mode-picker">
+              <legend class="sr-only">Interception mode</legend>
+              <label><input type="radio" name="mode" value="closest" /> <span><strong>Closest</strong><small>One, nearest available</small></span></label>
+              <label><input type="radio" name="mode" value="random" /> <span><strong>Random</strong><small>One available at random</small></span></label>
+              <label><input type="radio" name="mode" value="two" /> <span><strong>Launch two</strong><small>Two nearest when possible</small></span></label>
+              <label><input type="radio" name="mode" value="smart" checked /> <span><strong>Smart</strong><small>Preserves coverage around holes</small></span></label>
+            </fieldset>
+          </section>
+
+          <section class="control-section">
+            <h2>Operations</h2>
+            <label class="range-control" for="attack-rate">
+              <span>Incoming ballistics <output id="attack-output">6 / hr</output></span>
+              <input id="attack-rate" type="range" min="0" max="60" value="6" step="1" />
+            </label>
+            <label class="range-control" for="replenishment">
+              <span>Launch preparation <output id="replenishment-output">30 min</output></span>
+              <input id="replenishment" type="range" min="0" max="180" value="30" step="5" />
+            </label>
+            <label class="range-control" for="speed">
+              <span>Simulation speed <output id="speed-output">20×</output></span>
+              <input id="speed" type="range" min="1" max="100" value="20" step="1" />
+            </label>
+            <p class="substep-note">Rendered at display refresh rate with ≤1 simulated-second physics steps.</p>
+            <p class="trajectory-note"><strong>Trajectory model:</strong> ballistics enter already detected at 58–65 km and accelerate along a straight terminal descent under the pathwise component of gravity. Interceptors accelerate under power on a downward-curving path.</p>
+          </section>
+
+          <section class="cost-section">
+            <div class="cost-metric">
+              <span>Estimated cost per airborne cell <small>(vs $4M+ for Patriot PAC-3 MSE)</small></span>
+              <strong id="cost-output">$—</strong>
+            </div>
+            <div class="cost-metric">
+              <span>Estimated fleet cost</span>
+              <strong id="fleet-cost-output">$—</strong>
+              <small id="fleet-cost-caption">— balloon spaces</small>
+            </div>
+            <button id="edit-bom" type="button">Edit bill of materials</button>
+            <p class="cost-warning">Illustrative recurring BOM only; excludes development, qualification, system integration, ground equipment, operations, spares, and failed rounds.</p>
+          </section>
+        </aside>
+
+        <section class="simulation-shell" aria-label="Three-dimensional balloon defense simulation">
+          <canvas id="world" aria-label="3D city, balloon grid, incoming missiles, and interceptors"></canvas>
+
+          <div class="metrics-panel" aria-live="polite">
+            <div><span>Coverage</span><strong id="coverage-output">—</strong><small id="coverage-caption">protected area</small></div>
+            <div title="Mean number of ready interceptors whose range covers a point in the city"><span>Average interceptors in range</span><strong id="depth-output">—</strong><small>per point in the city</small></div>
+            <div><span>Ready cells</span><strong id="ready-output">—</strong><small id="ready-caption">of — total</small></div>
+          </div>
+
+          <div class="legend-panel">
+            <span><i class="legend-dot ready"></i> Ready</span>
+            <span><i class="legend-dot depleted"></i> Replenishing</span>
+            <span><i class="legend-dot incoming"></i> Ballistic</span>
+            <span><i class="legend-dot interceptor"></i> Interceptor</span>
+          </div>
+
+          <div class="camera-help">Drag to orbit · Wheel to zoom · Right-drag to pan</div>
+
+          <div class="score-panel" aria-live="polite">
+            <div class="score hit"><span>Intercepted</span><strong id="hits-output">0</strong></div>
+            <div class="score miss"><span>Impacts</span><strong id="misses-output">0</strong></div>
+            <button id="reset-score" type="button">Reset counters</button>
+          </div>
+
+          <section class="projectile-panel" aria-label="Active projectile telemetry">
+            <div class="projectile-heading">
+              <span>Projectile telemetry</span>
+              <small>speed · altitude</small>
+            </div>
+            <div id="projectile-list" class="projectile-list">
+              <div class="projectile-empty">No active tracks</div>
+            </div>
+          </section>
+
+          <div class="event-log" id="event-log" aria-live="polite">Defense grid initialized.</div>
+        </section>
+      </main>
+
+      <dialog id="bom-dialog" aria-labelledby="bom-title">
+        <form method="dialog" id="bom-form">
+          <div class="modal-heading">
+            <div>
+              <h2 id="bom-title">Bill of materials</h2>
+              <p>Editable base cost at 10 km interceptor range. Scaled items grow with range.</p>
+            </div>
+            <button class="icon-button" value="cancel" aria-label="Close dialog" type="submit">×</button>
+          </div>
+          <div id="bom-fields" class="bom-fields"></div>
+          <div class="bom-total">
+            <span>Estimated cost at current range</span>
+            <strong id="bom-total-output">$—</strong>
+          </div>
+          <div class="modal-actions">
+            <button id="restore-bom" type="button">Restore defaults</button>
+            <button class="primary" value="save" type="submit">Apply costs</button>
+          </div>
+        </form>
+      </dialog>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
