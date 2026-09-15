@@ -1,6 +1,6 @@
 {
   "name": "balloon-defense",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "private": true,
   "description": "Interactive 3D simulation of a stratospheric balloon interception grid",
   "type": "module",

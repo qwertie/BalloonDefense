@@ -632,13 +632,13 @@ function spawnEffect(point: THREE.Vector3, color: number, scale = 1, initialVelo
     opacity: 0.78,
     wireframe: true,
   });
-  const mesh = new THREE.Mesh(new THREE.IcosahedronGeometry(0.7 * scale, 2), material);
+  const mesh = new THREE.Mesh(new THREE.IcosahedronGeometry(0.22 * scale, 2), material);
   mesh.position.copy(point);
   effectsGroup.add(mesh);
   const effect: VisualEffect = {
     mesh,
     life: 0,
-    maxLife: scale > 1 ? 1.05 : 0.8,
+    maxLife: scale > 1 ? 1.35 : 1.0,
     velocityKms: initialVelocity.clone(),
     // Quadratic drag expressed as a characteristic stopping distance.
     // Thinner air at greater altitude allows the debris cloud to coast farther.
@@ -677,7 +677,7 @@ function resolveAttack(index: number, defended: boolean): void {
       altitude: attack.interceptPoint.y,
       status: 'Destroyed',
       life: 0,
-      maxLife: 1.05,
+      maxLife: ballisticEffect.maxLife,
     };
     ballisticEffect.telemetry = ballisticTelemetry;
     expiringTelemetry.push(ballisticTelemetry);
@@ -696,7 +696,7 @@ function resolveAttack(index: number, defended: boolean): void {
         altitude: attack.interceptPoint.y,
         status: 'Expended',
         life: 0,
-        maxLife: 0.8,
+        maxLife: interceptorEffect.maxLife,
       };
       interceptorEffect.telemetry = interceptorTelemetry;
       expiringTelemetry.push(interceptorTelemetry);
@@ -712,7 +712,7 @@ function resolveAttack(index: number, defended: boolean): void {
       altitude: 0,
       status: 'Impact',
       life: 0,
-      maxLife: 1.05,
+      maxLife: impactEffect.maxLife,
     };
     impactEffect.telemetry = impactTelemetry;
     expiringTelemetry.push(impactTelemetry);
@@ -832,13 +832,13 @@ function scheduleNextAttack(): void {
   nextAttackAt = simulationTime + interval;
 }
 
-function updateEffects(realDelta: number): void {
+function updateEffects(animationDelta: number, physicsDelta: number): void {
   for (let index = effects.length - 1; index >= 0; index -= 1) {
     const effect = effects[index];
-    effect.life += realDelta;
+    effect.life += animationDelta;
     const speedKms = effect.velocityKms.length();
-    if (speedKms > 0.0001) {
-      const dragRatio = speedKms * realDelta / effect.dragLengthKm;
+    if (speedKms > 0.0001 && physicsDelta > 0) {
+      const dragRatio = speedKms * physicsDelta / effect.dragLengthKm;
       const distanceKm = effect.dragLengthKm * Math.log1p(dragRatio);
       effect.mesh.position.addScaledVector(effect.velocityKms, distanceKm / speedKms);
       effect.velocityKms.multiplyScalar(1 / (1 + dragRatio));
@@ -848,7 +848,7 @@ function updateEffects(realDelta: number): void {
       effect.telemetry.altitude = effect.mesh.position.y;
     }
     const progress = effect.life / effect.maxLife;
-    effect.mesh.scale.setScalar(1 + progress * 5.5);
+    effect.mesh.scale.setScalar(1 + progress * 2.2);
     (effect.mesh.material as THREE.MeshBasicMaterial).opacity = Math.max(0, 0.8 * (1 - progress));
     if (progress >= 1) {
       effectsGroup.remove(effect.mesh);
@@ -858,7 +858,7 @@ function updateEffects(realDelta: number): void {
     }
   }
   for (let index = expiringTelemetry.length - 1; index >= 0; index -= 1) {
-    expiringTelemetry[index].life += realDelta;
+    expiringTelemetry[index].life += animationDelta;
     if (expiringTelemetry[index].life >= expiringTelemetry[index].maxLife) {
       expiringTelemetry.splice(index, 1);
     }
@@ -971,7 +971,7 @@ function updateProjectileTelemetry(): void {
       kind: attack.kind,
       speedKmh: attack.speedKmh,
       altitude: attack.mesh.position.y,
-      status: attack.detected ? 'Detected' : 'Undetected',
+      status: attack.detected ? 'Tracked' : 'Undetected',
     });
     count += 1;
     for (const interceptor of attack.interceptors) {
@@ -1014,15 +1014,16 @@ function resizeRenderer(): void {
 function animate(now: number): void {
   const realDelta = Math.min(0.1, (now - lastFrameTime) / 1000);
   lastFrameTime = now;
+  const simulatedDelta = paused ? 0 : realDelta * config.speed;
   if (!paused) {
-    let remaining = realDelta * config.speed;
+    let remaining = simulatedDelta;
     while (remaining > 0) {
       const step = Math.min(1, remaining);
       advanceSimulation(step);
       remaining -= step;
     }
   }
-  updateEffects(realDelta);
+  updateEffects(realDelta, simulatedDelta);
   updateProjectileTelemetry();
   requireElement('sim-time').textContent = formatSimulationTime(simulationTime);
   resizeRenderer();
