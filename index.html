@@ -22,7 +22,7 @@
         <div class="top-stats" aria-live="polite">
           <div class="top-stat"><span>Simulation time</span><strong id="sim-time">00:00:00</strong></div>
           <div class="top-stat"><span>Fleet status</span><strong id="fleet-status">Ready</strong></div>
-          <button class="pause-button" id="pause-button" type="button" aria-pressed="false">Pause</button>
+          <button class="pause-button" id="pause-button" type="button" aria-pressed="false" title="Pauses simulation time. Explosion expansion remains visible, but projectile and debris translation stop.">Pause</button>
         </div>
       </header>
 
@@ -34,38 +34,38 @@
               <span class="reset-note">Geometry changes reset fleet</span>
             </div>
 
-            <fieldset class="shape-picker">
+            <fieldset class="shape-picker" title="Changes the protected-area boundary. Changing geometry resets the fleet and active engagements.">
               <legend>City shape</legend>
               <label><input type="radio" name="shape" value="square" /> Square</label>
               <label><input type="radio" name="shape" value="rectangle" checked /> 3:2</label>
               <label><input type="radio" name="shape" value="octagon" /> Octagon</label>
             </fieldset>
 
-            <label class="range-control" for="city-radius">
+            <label class="range-control" for="city-radius" title="Distance from the city center to its nominal outer boundary. Shape changes how this radius maps to width and height.">
               <span>City radius <output id="city-radius-output">30 km</output></span>
               <input id="city-radius" type="range" min="10" max="50" value="30" step="1" />
             </label>
-            <label class="range-control" for="spacing">
+            <label class="range-control" for="spacing" title="Center-to-center distance between neighboring balloons in the hexagonal lattice. Smaller spacing adds redundancy and shortens typical interceptor travel.">
               <span>Hex spacing <output id="spacing-output">8 km</output></span>
               <input id="spacing" type="range" min="3" max="20" value="8" step="0.5" />
             </label>
-            <label class="range-control" for="range">
-              <span>Interceptor range <output id="range-output">10 km</output></span>
+            <label class="range-control" for="range" title="Purchased design rating: the maximum horizontal displacement from balloon to intercept point. Actual usable reach may be smaller when detection leaves too little time. Cost scales with this rating, not with each event's realized distance.">
+              <span>Rated horizontal range <output id="range-output">10 km</output></span>
               <input id="range" type="range" min="3" max="20" value="10" step="0.5" />
             </label>
-            <label class="range-control" for="altitude">
+            <label class="range-control" for="altitude" title="Operating altitude of ready balloons. Higher altitude lengthens ascent and recovery and changes the vertical part of every interceptor path.">
               <span>Fleet altitude <output id="altitude-output">20 km</output></span>
               <input id="altitude" type="range" min="15" max="30" value="20" step="1" />
             </label>
-            <div class="computed-row">
+            <div class="computed-row" title="Computed as fleet altitude divided by an assumed average ascent rate of 5 m/s.">
               <span>Balloon ascent <small>5 m/s</small></span>
               <strong id="ascent-output">67 min</strong>
             </div>
-            <div class="computed-row">
+            <div class="computed-row" title="Preparation time plus computed ascent time. Coverage returns only when the replacement reaches fleet altitude.">
               <span>Replacement ready</span>
               <strong id="replacement-output">97 min</strong>
             </div>
-            <div class="computed-row">
+            <div class="computed-row" title="Computed as fleet altitude divided by an assumed average recovery descent rate of 3 m/s.">
               <span>Recovery descent <small>3 m/s</small></span>
               <strong id="descent-output">111 min</strong>
             </div>
@@ -75,46 +75,46 @@
             <h2>Interception policy</h2>
             <fieldset class="mode-picker">
               <legend class="sr-only">Interception mode</legend>
-              <label><input type="radio" name="mode" value="closest" /> <span><strong>Closest</strong><small>One, nearest available</small></span></label>
-              <label><input type="radio" name="mode" value="random" /> <span><strong>Random</strong><small>One available at random</small></span></label>
-              <label><input type="radio" name="mode" value="two" /> <span><strong>Launch two</strong><small>Two nearest when possible</small></span></label>
-              <label><input type="radio" name="mode" value="smart" checked /> <span><strong>Smart</strong><small>Preserves coverage around holes</small></span></label>
+              <label title="Launches the nearest ready balloon that satisfies both rated range and time-to-intercept constraints."><input type="radio" name="mode" value="closest" /> <span><strong>Closest</strong><small>One, nearest available</small></span></label>
+              <label title="Randomly chooses one ready, dynamically feasible balloon. Useful for seeing non-optimal depletion patterns."><input type="radio" name="mode" value="random" /> <span><strong>Random</strong><small>One available at random</small></span></label>
+              <label title="Launches up to two nearest dynamically feasible interceptors for redundancy."><input type="radio" name="mode" value="two" /> <span><strong>Launch two</strong><small>Two nearest when possible</small></span></label>
+              <label title="Normally launches two, but near a city edge or depleted neighboring cell launches the feasible candidate with the most ready neighbors."><input type="radio" name="mode" value="smart" checked /> <span><strong>Smart</strong><small>Preserves coverage around holes</small></span></label>
             </fieldset>
           </section>
 
           <section class="control-section">
             <h2>Operations</h2>
-            <label class="range-control" for="attack-rate">
+            <label class="range-control" for="attack-rate" title="Mean launch rate of a Poisson process. Actual firing intervals are random and may cluster.">
               <span>Incoming ballistics <output id="attack-output">6 / hr</output></span>
               <input id="attack-rate" type="range" min="0" max="60" value="6" step="1" />
             </label>
-            <label class="range-control" for="replenishment">
+            <label class="range-control" for="replenishment" title="Ground preparation delay before a replacement balloon begins ascending. Balloon ascent time is added automatically.">
               <span>Launch preparation <output id="replenishment-output">30 min</output></span>
               <input id="replenishment" type="range" min="0" max="180" value="30" step="5" />
             </label>
-            <label class="range-control speed-control" id="idle-speed-control" for="idle-speed">
+            <label class="range-control speed-control" id="idle-speed-control" for="idle-speed" title="Playback rate while missiles are only in the Fired, not-yet-detected phase or no missiles exist. The highlighted speed control is currently active.">
               <span>No active tracks speed <output id="idle-speed-output">20×</output></span>
               <input id="idle-speed" type="range" min="1" max="100" value="20" step="1" />
             </label>
-            <label class="range-control speed-control" id="tracked-speed-control" for="tracked-speed">
+            <label class="range-control speed-control" id="tracked-speed-control" for="tracked-speed" title="Playback rate from first detection through the end of orange explosion telemetry. The highlighted speed control is currently active.">
               <span>Tracked missile speed <output id="tracked-speed-output">2×</output></span>
               <input id="tracked-speed" type="range" min="1" max="100" value="2" step="1" />
             </label>
-            <p class="substep-note">Rendered at display refresh rate with ≤1 simulated-second physics steps.</p>
+            <p class="substep-note" title="Dynamic feasibility uses the curved 3D path, at most 2 g acceleration, and at most 800 m/s. A candidate must fit both this time envelope and the rated horizontal range.">Rendered at display refresh rate with ≤1 simulated-second physics steps. Reachability screen: 2 g, 800 m/s maximum.</p>
             <p class="trajectory-note"><strong>Trajectory model:</strong> missiles fire 400–650 km away and follow a no-drag, constant-gravity parabola. A notional external radar about 200 km from the target detects them 60–120 seconds after firing while they are still climbing; this delay is sampled, not derived from radar geometry. Pre-detection speed is hidden.</p>
           </section>
 
           <section class="cost-section">
-            <div class="cost-metric">
+            <div class="cost-metric" title="Procurement-equivalent estimate for a cell designed to meet the selected rated range. It does not change per engagement; earlier warning lets this same design cover more feasible launch positions.">
               <span>Estimated procurement cost per airborne cell <small>(vs ~$4.19M PAC-3 MSE FY2025 procurement/round)</small></span>
               <strong id="cost-output">$—</strong>
             </div>
-            <div class="cost-metric">
+            <div class="cost-metric" title="Current per-cell procurement estimate multiplied by every position in the initialized balloon grid.">
               <span>Estimated fleet cost</span>
               <strong id="fleet-cost-output">$—</strong>
               <small id="fleet-cost-caption">— balloon spaces</small>
             </div>
-            <button id="edit-bom" type="button">Edit bill of materials</button>
+            <button id="edit-bom" type="button" title="Edit component and allocated program-cost assumptions at the 10 km reference rating.">Edit bill of materials</button>
             <p class="cost-warning">Editable procurement-equivalent estimate: hardware, production integration and acceptance, allocated support/spares, program engineering/software, and production contingency. Excludes sunk R&amp;D and operations.</p>
           </section>
         </aside>
@@ -123,9 +123,9 @@
           <canvas id="world" aria-label="3D city, balloon grid, incoming missiles, and interceptors"></canvas>
 
           <div class="metrics-panel" aria-live="polite">
-            <div><span>Coverage</span><strong id="coverage-output">—</strong><small id="coverage-caption">protected area</small></div>
-            <div title="Mean number of ready interceptors whose range covers a point in the city"><span>Average interceptors in range</span><strong id="depth-output">—</strong><small>per point in the city</small></div>
-            <div><span>Ready cells</span><strong id="ready-output">—</strong><small id="ready-caption">of — total</small></div>
+            <div title="Geometric coverage only: city area within the rated horizontal range of at least one ready balloon. Event-specific warning time can reduce dynamically feasible coverage."><span>Geometric coverage</span><strong id="coverage-output">—</strong><small id="coverage-caption">protected area</small></div>
+            <div title="Mean count of ready balloons within rated horizontal range. This is geometric redundancy, before event-specific time feasibility is applied."><span>Average in geometric range</span><strong id="depth-output">—</strong><small>ready balloons / point</small></div>
+            <div title="Cells whose interceptor is present at fleet altitude. Replenishing cells do not contribute to coverage or engagements."><span>Ready cells</span><strong id="ready-output">—</strong><small id="ready-caption">of — total</small></div>
           </div>
 
           <div class="legend-panel">
@@ -140,10 +140,10 @@
           <div class="score-panel" aria-live="polite">
             <div class="score hit"><span>Intercepted</span><strong id="hits-output">0</strong></div>
             <div class="score miss"><span>Impacts</span><strong id="misses-output">0</strong></div>
-            <button id="reset-score" type="button">Reset counters</button>
+            <button id="reset-score" type="button" title="Resets only interception and impact counters; it does not rebuild the grid or remove active missiles.">Reset counters</button>
           </div>
 
-          <section class="projectile-panel" aria-label="Active projectile telemetry">
+          <section class="projectile-panel" aria-label="Active projectile telemetry" title="Hover a projectile card for detection, intercept, and impact timing details.">
             <div class="projectile-heading">
               <span>Projectile telemetry</span>
               <small>speed · altitude</small>

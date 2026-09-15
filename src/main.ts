@@ -118,6 +118,9 @@ const config: Configuration = {
   mode: 'smart',
 };
 
+const INTERCEPTOR_MAX_ACCELERATION_KMS2 = 0.01962; // 2 g
+const INTERCEPTOR_MAX_SPEED_KMS = 0.8; // 2,880 km/h
+
 const defaultBom: BomItem[] = [
   { key: 'envelope', label: 'Envelope and tendons', cost: 3200, exponent: 0.55 },
   { key: 'helium', label: 'Lifting gas', cost: 2300, exponent: 0.45 },
@@ -496,11 +499,44 @@ function neighborCount(balloon: BalloonNode): number {
   }, 0);
 }
 
-function selectBalloons(point: THREE.Vector3): BalloonNode[] {
+function interceptorControlPoint(start: THREE.Vector3, end: THREE.Vector3): THREE.Vector3 {
+  const direction = end.clone().sub(start);
+  const control = start.clone().addScaledVector(direction, 0.42);
+  control.y -= Math.max(1.2, Math.abs(direction.y) * 0.28);
+  return control;
+}
+
+function interceptorPathDistance(start: THREE.Vector3, end: THREE.Vector3): number {
+  const control = interceptorControlPoint(start, end);
+  let distance = 0;
+  let previous = start;
+  for (let index = 1; index <= 16; index += 1) {
+    const point = quadraticPoint(start, control, end, index / 16);
+    distance += previous.distanceTo(point);
+    previous = point;
+  }
+  return distance;
+}
+
+function minimumInterceptorTime(distanceKm: number): number {
+  const accelerationDistance = INTERCEPTOR_MAX_SPEED_KMS ** 2 / (2 * INTERCEPTOR_MAX_ACCELERATION_KMS2);
+  if (distanceKm <= accelerationDistance) {
+    return Math.sqrt(2 * distanceKm / INTERCEPTOR_MAX_ACCELERATION_KMS2);
+  }
+  const accelerationTime = INTERCEPTOR_MAX_SPEED_KMS / INTERCEPTOR_MAX_ACCELERATION_KMS2;
+  return accelerationTime + (distanceKm - accelerationDistance) / INTERCEPTOR_MAX_SPEED_KMS;
+}
+
+function selectBalloons(point: THREE.Vector3, timeAvailable: number): BalloonNode[] {
   const candidates = balloons
     .filter((balloon) => balloon.status === 'ready')
-    .map((balloon) => ({ balloon, distance: Math.hypot(balloon.x - point.x, balloon.z - point.z) }))
-    .filter(({ distance }) => distance <= config.range)
+    .map((balloon) => {
+      const distance = Math.hypot(balloon.x - point.x, balloon.z - point.z);
+      const start = new THREE.Vector3(balloon.x, config.altitude - 0.7, balloon.z);
+      const pathDistance = interceptorPathDistance(start, point);
+      return { balloon, distance, minimumTime: minimumInterceptorTime(pathDistance) };
+    })
+    .filter(({ distance, minimumTime }) => distance <= config.range && minimumTime <= timeAvailable)
     .sort((a, b) => a.distance - b.distance);
 
   if (!candidates.length) return [];
@@ -609,7 +645,8 @@ function planEngagement(attack: Attack): void {
   if (attack.engagementPlanned) return;
   attack.detected = true;
   attack.engagementPlanned = true;
-  const selected = selectBalloons(attack.interceptPoint);
+  const timeAvailable = Math.max(0, attack.interceptAt - attack.elapsed);
+  const selected = selectBalloons(attack.interceptPoint, timeAvailable);
   attack.defended = selected.length > 0;
   for (const balloon of selected) {
     interceptorSequence += 1;
@@ -619,9 +656,7 @@ function planEngagement(attack: Attack): void {
     interceptorMesh.position.copy(interceptorStart);
     movingGroup.add(interceptorMesh);
     const interceptorTrail = makeTrail(0xf4bc5f);
-    const direction = attack.interceptPoint.clone().sub(interceptorStart);
-    const control = interceptorStart.clone().addScaledVector(direction, 0.42);
-    control.y -= Math.max(1.2, Math.abs(direction.y) * 0.28);
+    const control = interceptorControlPoint(interceptorStart, attack.interceptPoint);
     attack.interceptors.push({
       telemetryId: interceptorId,
       kind: 'interceptor',
@@ -642,9 +677,10 @@ function planEngagement(attack: Attack): void {
 
   updateCoverage();
   updateFleetStatus();
+  const impactLead = Math.max(0, attack.duration - attack.elapsed);
   logEvent(selected.length
-    ? `Missile detected after ${Math.round(attack.detectionAt)} s — ${selected.length} interceptor${selected.length > 1 ? 's' : ''} committed.`
-    : `Missile detected after ${Math.round(attack.detectionAt)} s — no ready interceptor in range.`);
+    ? `Detected after ${Math.round(attack.detectionAt)} s · ${Math.round(impactLead)} s to impact — ${selected.length} interceptor${selected.length > 1 ? 's' : ''} committed.`
+    : `Detected after ${Math.round(attack.detectionAt)} s · ${Math.round(impactLead)} s to impact — no feasible ready interceptor.`);
 }
 
 function spawnEffect(point: THREE.Vector3, color: number, scale = 1, initialVelocity = new THREE.Vector3()): VisualEffect {
@@ -968,10 +1004,12 @@ function appendTelemetryCard(
     status: string;
     destroyed?: boolean;
     showSpeed?: boolean;
+    tooltip?: string;
   },
 ): void {
   const card = document.createElement('div');
   card.className = `projectile-card ${track.kind}${track.destroyed ? ' destroyed' : ''}`;
+  if (track.tooltip) card.title = track.tooltip;
 
   const identity = document.createElement('div');
   identity.className = 'projectile-identity';
@@ -988,7 +1026,7 @@ function appendTelemetryCard(
     ? '—'
     : `${Math.round(Math.max(0, track.speedKmh)).toLocaleString()} km/h`;
   const speedLabel = document.createElement('label');
-  speedLabel.textContent = track.showSpeed === false ? 'Hidden before detection' : 'Speed';
+  speedLabel.textContent = track.showSpeed === false ? 'Not yet detected' : 'Speed';
   speed.append(speedValue, speedLabel);
 
   const altitude = document.createElement('div');
@@ -1014,6 +1052,9 @@ function updateProjectileTelemetry(): void {
       altitude: attack.mesh.position.y,
       status: attack.detected ? 'Tracked' : 'Fired',
       showSpeed: attack.detected,
+      tooltip: attack.detected
+        ? `${Math.ceil(Math.max(0, attack.interceptAt - attack.elapsed))} simulated seconds to planned intercept; ${Math.ceil(Math.max(0, attack.duration - attack.elapsed))} seconds to impact.`
+        : `Detection expected in ${Math.ceil(Math.max(0, attack.detectionAt - attack.elapsed))} simulated seconds; speed is hidden during the simplified boost/ascent phase.`,
     });
     count += 1;
     for (const interceptor of attack.interceptors) {
