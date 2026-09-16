@@ -16,6 +16,11 @@ interface Configuration {
   replenishmentMinutes: number;
   idleSpeed: number;
   trackedSpeed: number;
+  radarRange: number;
+  threatBearing: number;
+  threatWidth: number;
+  gridBias: number;
+  forwardRadar: boolean;
   mode: InterceptionMode;
 }
 
@@ -59,7 +64,8 @@ interface Attack extends MovingObject {
   elapsed: number;
   duration: number;
   apexAt: number;
-  detectionAt: number;
+  detectedAt: number | null;
+  detectionSensor: 'City radar' | 'Forward radar' | null;
   interceptAt: number;
   horizontalDirection: THREE.Vector3;
   horizontalSpeedKms: number;
@@ -103,6 +109,16 @@ interface BomItem {
   label: string;
   cost: number;
   exponent: number;
+  costType: 'variable' | 'fixed';
+}
+
+interface CostBreakdown {
+  variableBase: number;
+  profit: number;
+  variableWithProfit: number;
+  fixedProgram: number;
+  fixedPerUnit: number;
+  totalPerUnit: number;
 }
 
 const config: Configuration = {
@@ -115,30 +131,42 @@ const config: Configuration = {
   replenishmentMinutes: 30,
   idleSpeed: 20,
   trackedSpeed: 2,
+  radarRange: 300,
+  threatBearing: 45,
+  threatWidth: 90,
+  gridBias: 50,
+  forwardRadar: true,
   mode: 'smart',
 };
 
 const INTERCEPTOR_MAX_ACCELERATION_KMS2 = 0.01962; // 2 g
 const INTERCEPTOR_MAX_SPEED_KMS = 0.8; // 2,880 km/h
+const EARTH_RADIUS_KM = 6371;
+const RADAR_ANTENNA_HEIGHT_KM = 0.03;
+const FORWARD_RADAR_DISTANCE_KM = 200;
+const DEFAULT_MINIMUM_PRODUCTION = 1000;
 
 const defaultBom: BomItem[] = [
-  { key: 'envelope', label: 'Envelope and tendons', cost: 3200, exponent: 0.55 },
-  { key: 'helium', label: 'Lifting gas', cost: 2300, exponent: 0.45 },
-  { key: 'rigging', label: 'Rigging and recovery', cost: 1400, exponent: 0.35 },
-  { key: 'power', label: 'Solar power and storage', cost: 1800, exponent: 0 },
-  { key: 'comms', label: 'Navigation and communications', cost: 1800, exponent: 0 },
-  { key: 'airframe', label: 'Interceptor airframe', cost: 3500, exponent: 1.1 },
-  { key: 'propulsion', label: 'Interceptor propulsion', cost: 7500, exponent: 1.7 },
-  { key: 'guidance', label: 'Guidance and fuzing', cost: 12000, exponent: 0.35 },
-  { key: 'integration', label: 'Production integration and acceptance', cost: 35000, exponent: 0.35 },
-  { key: 'support', label: 'Allocated ground support and spares', cost: 45000, exponent: 0.1 },
-  { key: 'engineering', label: 'Program engineering and software', cost: 60000, exponent: 0.3 },
-  { key: 'contingency', label: 'Production contingency and resilience', cost: 20000, exponent: 0.5 },
-  { key: 'labor', label: 'Labor', cost: 4000, exponent: 0 },
-  { key: 'profit', label: 'Profit', cost: 4000, exponent: 0 },
+  { key: 'envelope', label: 'Envelope and tendons', cost: 3200, exponent: 0.55, costType: 'variable' },
+  { key: 'helium', label: 'Lifting gas', cost: 2300, exponent: 0.45, costType: 'variable' },
+  { key: 'rigging', label: 'Rigging and recovery', cost: 1400, exponent: 0.35, costType: 'variable' },
+  { key: 'power', label: 'Solar power and storage', cost: 1800, exponent: 0, costType: 'variable' },
+  { key: 'comms', label: 'Navigation and communications', cost: 1800, exponent: 0, costType: 'variable' },
+  { key: 'airframe', label: 'Interceptor airframe', cost: 3500, exponent: 1.1, costType: 'variable' },
+  { key: 'propulsion', label: 'Interceptor propulsion', cost: 7500, exponent: 1.7, costType: 'variable' },
+  { key: 'guidance', label: 'Guidance and fuzing', cost: 12000, exponent: 0.35, costType: 'variable' },
+  { key: 'integration', label: 'Per-cell integration and acceptance', cost: 35000, exponent: 0.35, costType: 'variable' },
+  { key: 'support', label: 'Initial spares and support per cell', cost: 45000, exponent: 0.1, costType: 'variable' },
+  { key: 'contingency', label: 'Production contingency per cell', cost: 20000, exponent: 0.5, costType: 'variable' },
+  { key: 'labor', label: 'Direct labor', cost: 4000, exponent: 0, costType: 'variable' },
+  { key: 'engineering', label: 'Program engineering and software', cost: 60000000, exponent: 0.3, costType: 'fixed' },
+  { key: 'qualification', label: 'Qualification and flight testing', cost: 40000000, exponent: 0.25, costType: 'fixed' },
+  { key: 'tooling', label: 'Tooling and production setup', cost: 25000000, exponent: 0.2, costType: 'fixed' },
 ];
 
 let bom = defaultBom.map((item) => ({ ...item }));
+let minimumProduction = DEFAULT_MINIMUM_PRODUCTION;
+let profitRatePercent = 10;
 let simulationTime = 0;
 let paused = false;
 let nextAttackAt = 0;
@@ -188,9 +216,10 @@ scene.add(sun);
 const groundGroup = new THREE.Group();
 const cityGroup = new THREE.Group();
 const gridGroup = new THREE.Group();
+const radarGroup = new THREE.Group();
 const movingGroup = new THREE.Group();
 const effectsGroup = new THREE.Group();
-scene.add(groundGroup, cityGroup, gridGroup, movingGroup, effectsGroup);
+scene.add(groundGroup, cityGroup, gridGroup, radarGroup, movingGroup, effectsGroup);
 
 const balloons: BalloonNode[] = [];
 const balloonById = new Map<string, BalloonNode>();
@@ -276,6 +305,43 @@ function randomCityPoint(): THREE.Vector3 {
     if (pointInsideCity(x, z)) return new THREE.Vector3(x, 0.25, z);
   }
   return new THREE.Vector3();
+}
+
+function bearingDirection(bearingDegrees = config.threatBearing): THREE.Vector3 {
+  const radians = THREE.MathUtils.degToRad(bearingDegrees);
+  return new THREE.Vector3(Math.sin(radians), 0, Math.cos(radians));
+}
+
+function bearingLabel(bearingDegrees: number): string {
+  const labels = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+  const normalized = ((bearingDegrees % 360) + 360) % 360;
+  return labels[Math.round(normalized / 45) % 8];
+}
+
+function radarSites(): Array<{ name: 'City radar' | 'Forward radar'; position: THREE.Vector3 }> {
+  const sites: Array<{ name: 'City radar' | 'Forward radar'; position: THREE.Vector3 }> = [
+    { name: 'City radar', position: new THREE.Vector3(0, RADAR_ANTENNA_HEIGHT_KM, 0) },
+  ];
+  if (config.forwardRadar) {
+    sites.push({
+      name: 'Forward radar',
+      position: bearingDirection().multiplyScalar(FORWARD_RADAR_DISTANCE_KM).setY(RADAR_ANTENNA_HEIGHT_KM),
+    });
+  }
+  return sites;
+}
+
+function detectingRadar(position: THREE.Vector3): 'City radar' | 'Forward radar' | null {
+  for (const site of radarSites().reverse()) {
+    const horizontalDistance = Math.hypot(position.x - site.position.x, position.z - site.position.z);
+    const slantDistance = Math.hypot(horizontalDistance, position.y - site.position.y);
+    const missileHorizon = Math.sqrt(2 * EARTH_RADIUS_KM * Math.max(0, position.y));
+    const radarHorizon = Math.sqrt(2 * EARTH_RADIUS_KM * RADAR_ANTENNA_HEIGHT_KM);
+    if (slantDistance <= config.radarRange && horizontalDistance <= missileHorizon + radarHorizon) {
+      return site.name;
+    }
+  }
+  return null;
 }
 
 function disposeGroup(group: THREE.Group): void {
@@ -414,6 +480,29 @@ function rebuildCity(): void {
   cityGroup.add(buildings);
 }
 
+function rebuildRadars(): void {
+  disposeGroup(radarGroup);
+  for (const site of radarSites()) {
+    const group = new THREE.Group();
+    group.position.set(site.position.x, 0.12, site.position.z);
+    const color = site.name === 'City radar' ? 0x8aaeff : 0xbe8cff;
+    const tower = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.12, 0.2, 0.9, 10),
+      new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.35, roughness: 0.5 }),
+    );
+    tower.position.y = 0.45;
+    const dish = new THREE.Mesh(
+      new THREE.SphereGeometry(0.34, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2),
+      new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.55, wireframe: true }),
+    );
+    dish.scale.y = 0.45;
+    dish.rotation.x = Math.PI / 2;
+    dish.position.y = 1.0;
+    group.add(tower, dish);
+    radarGroup.add(group);
+  }
+}
+
 function createBalloonVisual(x: number, y: number, z: number, material: THREE.MeshStandardMaterial): {
   group: THREE.Group;
   envelope: THREE.Mesh<THREE.SphereGeometry, THREE.MeshStandardMaterial>;
@@ -452,17 +541,22 @@ function rebuildGrid(reason = 'Defense grid initialized.'): void {
   disposeGroup(effectsGroup);
   effects.length = 0;
   disposeGroup(gridGroup);
+  rebuildRadars();
   descendingBalloons.length = 0;
   balloons.length = 0;
   balloonById.clear();
-  const extent = config.cityRadius + config.spacing;
+  const biasDistance = config.spacing * 1.5 * (config.gridBias / 100);
+  const biasVector = bearingDirection().multiplyScalar(biasDistance);
+  const extent = config.cityRadius + config.spacing + biasDistance;
   const limit = Math.ceil((extent * 2) / config.spacing) + 2;
 
   for (let r = -limit; r <= limit; r += 1) {
     for (let q = -limit; q <= limit; q += 1) {
       const x = config.spacing * (q + r / 2);
       const z = config.spacing * (Math.sqrt(3) / 2) * r;
-      if (!pointInsideCity(x, z)) continue;
+      const insideBaseGrid = pointInsideCity(x, z);
+      const insideForwardExtension = biasDistance > 0 && pointInsideCity(x - biasVector.x, z - biasVector.z);
+      if (!insideBaseGrid && !insideForwardExtension) continue;
       const id = `${q}:${r}`;
       const balloon = makeBalloon({ id, q, r, x, z, status: 'ready', prepEndsAt: 0, readyAt: 0 });
       balloons.push(balloon);
@@ -525,6 +619,20 @@ function minimumInterceptorTime(distanceKm: number): number {
   }
   const accelerationTime = INTERCEPTOR_MAX_SPEED_KMS / INTERCEPTOR_MAX_ACCELERATION_KMS2;
   return accelerationTime + (distanceKm - accelerationDistance) / INTERCEPTOR_MAX_SPEED_KMS;
+}
+
+function fullRangeShotProfile(): { pathDistance: number; minimumTime: number; launchAltitude: number; interceptAltitude: number } {
+  const launchAltitude = config.altitude - 0.7;
+  const interceptAltitude = Math.max(7, config.altitude - 4);
+  const start = new THREE.Vector3(0, launchAltitude, 0);
+  const end = new THREE.Vector3(config.range, interceptAltitude, 0);
+  const pathDistance = interceptorPathDistance(start, end);
+  return {
+    pathDistance,
+    minimumTime: minimumInterceptorTime(pathDistance),
+    launchAltitude,
+    interceptAltitude,
+  };
 }
 
 function selectBalloons(point: THREE.Vector3, timeAvailable: number): BalloonNode[] {
@@ -599,12 +707,13 @@ function quadraticPoint(start: THREE.Vector3, control: THREE.Vector3, end: THREE
 
 function spawnAttack(): void {
   const target = randomCityPoint();
-  const angle = Math.random() * Math.PI * 2;
+  const sampledBearing = config.threatBearing + (Math.random() - 0.5) * config.threatWidth;
+  const launchDirection = bearingDirection(sampledBearing);
   const launchDistance = 400 + Math.random() * 250;
   const start = new THREE.Vector3(
-    target.x + Math.cos(angle) * launchDistance,
+    target.x + launchDirection.x * launchDistance,
     target.y,
-    target.z + Math.sin(angle) * launchDistance,
+    target.z + launchDirection.z * launchDistance,
   );
   const gravityKms2 = 0.00981;
   const launchAngle = THREE.MathUtils.degToRad(45 + Math.random() * 10);
@@ -613,7 +722,6 @@ function spawnAttack(): void {
   const initialVerticalSpeedKms = launchSpeedKms * Math.sin(launchAngle);
   const duration = launchDistance / horizontalSpeedKms;
   const apexAt = initialVerticalSpeedKms / gravityKms2;
-  const detectionAt = Math.min(apexAt - 8, 60 + Math.random() * 60);
   const horizontalDirection = target.clone().sub(start).setY(0).normalize();
   const interceptAltitude = Math.max(7, config.altitude - 4);
   const altitudeDiscriminant = Math.max(0, initialVerticalSpeedKms ** 2 - 2 * gravityKms2 * (interceptAltitude - start.y));
@@ -632,13 +740,13 @@ function spawnAttack(): void {
     lastPosition: start.clone(),
     velocityKms: horizontalDirection.clone().multiplyScalar(horizontalSpeedKms).setY(initialVerticalSpeedKms),
     speedKmh: launchSpeedKms * 3600,
-    start, target, interceptPoint, elapsed: 0, duration, apexAt, detectionAt, interceptAt,
+    start, target, interceptPoint, elapsed: 0, duration, apexAt, detectedAt: null, detectionSensor: null, interceptAt,
     horizontalDirection, horizontalSpeedKms, initialVerticalSpeedKms, gravityKms2,
     defended: false, detected: false, engagementPlanned: false, interceptors: [],
   };
 
   attacks.push(attack);
-  logEvent(`Missile fired ${Math.round(launchDistance)} km away — awaiting external sensor track.`);
+  logEvent(`Missile fired ${Math.round(launchDistance)} km away from bearing ${Math.round(((sampledBearing % 360) + 360) % 360)}° — not yet detected.`);
 }
 
 function planEngagement(attack: Attack): void {
@@ -678,9 +786,11 @@ function planEngagement(attack: Attack): void {
   updateCoverage();
   updateFleetStatus();
   const impactLead = Math.max(0, attack.duration - attack.elapsed);
+  const detectedAfter = attack.detectedAt ?? attack.elapsed;
+  const sensorName = attack.detectionSensor ?? 'Radar';
   logEvent(selected.length
-    ? `Detected after ${Math.round(attack.detectionAt)} s · ${Math.round(impactLead)} s to impact — ${selected.length} interceptor${selected.length > 1 ? 's' : ''} committed.`
-    : `Detected after ${Math.round(attack.detectionAt)} s · ${Math.round(impactLead)} s to impact — no feasible ready interceptor.`);
+    ? `${sensorName} detected after ${Math.round(detectedAfter)} s · ${Math.round(impactLead)} s to impact — ${selected.length} interceptor${selected.length > 1 ? 's' : ''} committed.`
+    : `${sensorName} detected after ${Math.round(detectedAfter)} s · ${Math.round(impactLead)} s to impact — no feasible ready interceptor.`);
 }
 
 function spawnEffect(point: THREE.Vector3, color: number, scale = 1, initialVelocity = new THREE.Vector3()): VisualEffect {
@@ -802,7 +912,14 @@ function updateAttacks(delta: number): void {
     attack.lastPosition.copy(attackPosition);
     updateTrail(attack, attackPosition);
 
-    if (!attack.detected && attack.elapsed >= attack.detectionAt) planEngagement(attack);
+    if (!attack.detected) {
+      const sensor = detectingRadar(attackPosition);
+      if (sensor) {
+        attack.detectedAt = attack.elapsed;
+        attack.detectionSensor = sensor;
+        planEngagement(attack);
+      }
+    }
 
     for (const interceptor of attack.interceptors) {
       const interceptorTimeProgress = THREE.MathUtils.clamp(
@@ -984,17 +1101,52 @@ function updateScore(): void {
   requireElement('misses-output').textContent = String(misses);
 }
 
-function calculateCost(): number {
+function calculateCostBreakdown(
+  items = bom,
+  productionQuantity = minimumProduction,
+  profitPercent = profitRatePercent,
+): CostBreakdown {
   const factor = config.range / 10;
-  return bom.reduce((sum, item) => sum + item.cost * Math.pow(factor, item.exponent), 0);
+  const scaledCost = (item: BomItem) => item.cost * Math.pow(factor, item.exponent);
+  const variableBase = items
+    .filter((item) => item.costType === 'variable')
+    .reduce((sum, item) => sum + scaledCost(item), 0);
+  const fixedProgram = items
+    .filter((item) => item.costType === 'fixed')
+    .reduce((sum, item) => sum + scaledCost(item), 0);
+  const profit = variableBase * Math.max(0, profitPercent) / 100;
+  const variableWithProfit = variableBase + profit;
+  const fixedPerUnit = fixedProgram / Math.max(1, productionQuantity);
+  return {
+    variableBase,
+    profit,
+    variableWithProfit,
+    fixedProgram,
+    fixedPerUnit,
+    totalPerUnit: variableWithProfit + fixedPerUnit,
+  };
+}
+
+function calculateCost(): number {
+  return calculateCostBreakdown().totalPerUnit;
+}
+
+function renderCostBreakdown(breakdown: CostBreakdown): void {
+  requireElement('bom-variable-output').textContent = formatCurrency(breakdown.variableBase);
+  requireElement('bom-profit-output').textContent = formatCurrency(breakdown.profit);
+  requireElement('bom-fixed-program-output').textContent = formatCurrency(breakdown.fixedProgram);
+  requireElement('bom-fixed-unit-output').textContent = formatCurrency(breakdown.fixedPerUnit);
+  requireElement('bom-total-output').textContent = formatCurrency(breakdown.totalPerUnit);
 }
 
 function updateCost(): void {
-  const cost = calculateCost();
+  const breakdown = calculateCostBreakdown();
+  const cost = breakdown.totalPerUnit;
   requireElement('cost-output').textContent = formatCurrency(cost);
+  requireElement('cost-caption').textContent = `${formatCurrency(breakdown.variableWithProfit)} variable incl. fee · ${formatCurrency(breakdown.fixedPerUnit)} fixed allocation`;
   requireElement('fleet-cost-output').textContent = formatCurrency(cost * balloons.length);
   requireElement('fleet-cost-caption').textContent = `${balloons.length} balloon space${balloons.length === 1 ? '' : 's'}`;
-  requireElement('bom-total-output').textContent = formatCurrency(cost);
+  renderCostBreakdown(breakdown);
 }
 
 function appendTelemetryCard(
@@ -1053,8 +1205,8 @@ function updateProjectileTelemetry(): void {
       status: attack.detected ? 'Tracked' : 'Fired',
       showSpeed: attack.detected,
       tooltip: attack.detected
-        ? `${Math.ceil(Math.max(0, attack.interceptAt - attack.elapsed))} simulated seconds to planned intercept; ${Math.ceil(Math.max(0, attack.duration - attack.elapsed))} seconds to impact.`
-        : `Detection expected in ${Math.ceil(Math.max(0, attack.detectionAt - attack.elapsed))} simulated seconds; speed is hidden during the simplified boost/ascent phase.`,
+        ? `${attack.detectionSensor ?? 'Radar'} acquired this missile ${Math.round(attack.detectedAt ?? attack.elapsed)} seconds after firing; ${Math.ceil(Math.max(0, attack.interceptAt - attack.elapsed))} seconds to planned intercept and ${Math.ceil(Math.max(0, attack.duration - attack.elapsed))} seconds to impact.`
+        : 'Not yet detected: the missile has not entered an enabled radar’s slant-range and Earth-horizon envelope. Speed is hidden during this simplified pre-detection phase.',
     });
     count += 1;
     for (const interceptor of attack.interceptors) {
@@ -1120,14 +1272,26 @@ function animate(now: number): void {
 }
 
 function updateControlOutputs(): void {
+  const fullRangeShot = fullRangeShotProfile();
+  const rangeRationale = `The selected ${config.range} km is an accuracy-qualified horizontal engagement envelope, not a hard energy limit. At the current ${config.altitude} km fleet altitude, the modeled interceptor starts at ${fullRangeShot.launchAltitude.toFixed(1)} km, follows a ${fullRangeShot.pathDistance.toFixed(2)} km curved path to a ${fullRangeShot.interceptAltitude.toFixed(1)} km intercept, and needs at least ${fullRangeShot.minimumTime.toFixed(1)} simulated seconds after launch under the 2 g / 800 m/s performance screen. With more warning it could physically fly farther, but real accuracy and endgame uncertainty normally degrade with reach. Because this simulator does not model that degradation—and already grants perfect interception inside the envelope—it holds the selected rated range as a hard cap rather than extending perfect accuracy indefinitely.`;
   requireElement('city-radius-output').textContent = `${config.cityRadius} km`;
   requireElement('spacing-output').textContent = `${config.spacing} km`;
   requireElement('range-output').textContent = `${config.range} km`;
+  requireElement('range-notice-output').textContent = `${fullRangeShot.minimumTime.toFixed(1)} s`;
+  requireElement('rated-range-control').title = rangeRationale;
+  requireElement('range-notice-row').title = rangeRationale;
   requireElement('altitude-output').textContent = `${config.altitude} km`;
   requireElement('attack-output').textContent = `${config.attackRate} / hr`;
   requireElement('replenishment-output').textContent = `${config.replenishmentMinutes} min`;
   requireElement('idle-speed-output').textContent = `${config.idleSpeed}×`;
   requireElement('tracked-speed-output').textContent = `${config.trackedSpeed}×`;
+  requireElement('radar-range-output').textContent = `${config.radarRange} km`;
+  requireElement('threat-bearing-output').textContent = `${config.threatBearing}° ${bearingLabel(config.threatBearing)}`;
+  requireElement('threat-width-output').textContent = config.threatWidth >= 360
+    ? '360° · all directions'
+    : `${config.threatWidth}° · ${bearingLabel(config.threatBearing - config.threatWidth / 2)}–${bearingLabel(config.threatBearing + config.threatWidth / 2)}`;
+  const biasDistance = config.spacing * 1.5 * (config.gridBias / 100);
+  requireElement('grid-bias-output').textContent = `${config.gridBias}% · ${biasDistance.toFixed(1)} km`;
   requireElement('ascent-output').textContent = `${Math.round(computedAscentMinutes())} min`;
   requireElement('replacement-output').textContent = `${Math.round(config.replenishmentMinutes + computedAscentMinutes())} min`;
   requireElement('descent-output').textContent = `${Math.round(computedDescentMinutes())} min`;
@@ -1150,10 +1314,30 @@ function bindRange(id: string, key: keyof Configuration, resetGeometry: boolean)
   });
 }
 
+function readDraftBom(): BomItem[] {
+  return bom.map((item) => {
+    const input = document.getElementById(`bom-${item.key}`) as HTMLInputElement | null;
+    return input ? { ...item, cost: Math.max(0, Number(input.value) || 0) } : { ...item };
+  });
+}
+
+function updateBomPreview(): void {
+  const quantity = Math.max(1, Math.round(readNumber('minimum-production')) || 1);
+  const profitPercent = Math.max(0, readNumber('profit-rate') || 0);
+  renderCostBreakdown(calculateCostBreakdown(readDraftBom(), quantity, profitPercent));
+}
+
 function buildBomFields(): void {
   const container = requireElement('bom-fields');
   container.replaceChildren();
-  for (const item of bom) {
+  for (const costType of ['variable', 'fixed'] as const) {
+    const heading = document.createElement('div');
+    heading.className = 'bom-group-heading';
+    heading.innerHTML = costType === 'variable'
+      ? '<strong>Variable production costs</strong><small>per airborne cell · before prime profit / fee</small>'
+      : '<strong>Fixed program funding</strong><small>total up-front requirement · not per cell</small>';
+    container.append(heading);
+    for (const item of bom.filter((entry) => entry.costType === costType)) {
     const wrapper = document.createElement('div');
     wrapper.className = 'bom-field';
     const label = document.createElement('label');
@@ -1166,14 +1350,13 @@ function buildBomFields(): void {
     input.min = '0';
     input.step = '100';
     input.value = String(item.cost);
-    input.addEventListener('input', () => {
-      const draft = bom.map((entry) => entry.key === item.key ? { ...entry, cost: Math.max(0, Number(input.value) || 0) } : entry);
-      const factor = config.range / 10;
-      const total = draft.reduce((sum, entry) => sum + entry.cost * Math.pow(factor, entry.exponent), 0);
-      requireElement('bom-total-output').textContent = formatCurrency(total);
-    });
+    input.title = costType === 'variable'
+      ? 'Per-cell production cost before prime contractor profit or fee.'
+      : 'Total non-recurring program funding before production; divided by the planning quantity only for comparison.';
+    input.addEventListener('input', updateBomPreview);
     wrapper.append(label, input);
     container.append(wrapper);
+    }
   }
 }
 
@@ -1185,6 +1368,15 @@ bindRange('attack-rate', 'attackRate', false);
 bindRange('replenishment', 'replenishmentMinutes', false);
 bindRange('idle-speed', 'idleSpeed', false);
 bindRange('tracked-speed', 'trackedSpeed', false);
+bindRange('radar-range', 'radarRange', false);
+bindRange('threat-bearing', 'threatBearing', true);
+bindRange('threat-width', 'threatWidth', false);
+bindRange('grid-bias', 'gridBias', true);
+
+requireElement<HTMLInputElement>('forward-radar').addEventListener('change', () => {
+  config.forwardRadar = requireElement<HTMLInputElement>('forward-radar').checked;
+  rebuildGrid(`${config.forwardRadar ? 'Forward radar enabled' : 'Forward radar disabled'} — fleet reset.`);
+});
 
 document.querySelectorAll<HTMLInputElement>('input[name="shape"]').forEach((input) => {
   input.addEventListener('change', () => {
@@ -1220,16 +1412,25 @@ requireElement<HTMLButtonElement>('reset-score').addEventListener('click', () =>
 
 const bomDialog = requireElement<HTMLDialogElement>('bom-dialog');
 requireElement<HTMLButtonElement>('edit-bom').addEventListener('click', () => {
+  requireElement<HTMLInputElement>('minimum-production').value = String(minimumProduction);
+  requireElement<HTMLInputElement>('profit-rate').value = String(profitRatePercent);
   buildBomFields();
-  updateCost();
+  updateBomPreview();
   bomDialog.showModal();
 });
 
 requireElement<HTMLButtonElement>('restore-bom').addEventListener('click', () => {
   bom = defaultBom.map((item) => ({ ...item }));
+  minimumProduction = DEFAULT_MINIMUM_PRODUCTION;
+  profitRatePercent = 10;
+  requireElement<HTMLInputElement>('minimum-production').value = String(minimumProduction);
+  requireElement<HTMLInputElement>('profit-rate').value = String(profitRatePercent);
   buildBomFields();
   updateCost();
 });
+
+requireElement<HTMLInputElement>('minimum-production').addEventListener('input', updateBomPreview);
+requireElement<HTMLInputElement>('profit-rate').addEventListener('input', updateBomPreview);
 
 requireElement<HTMLFormElement>('bom-form').addEventListener('submit', (event) => {
   const submitter = (event as SubmitEvent).submitter as HTMLButtonElement | null;
@@ -1238,8 +1439,10 @@ requireElement<HTMLFormElement>('bom-form').addEventListener('submit', (event) =
     ...item,
     cost: Math.max(0, Number(requireElement<HTMLInputElement>(`bom-${item.key}`).value) || 0),
   }));
+  minimumProduction = Math.max(1, Math.round(readNumber('minimum-production')) || 1);
+  profitRatePercent = Math.max(0, readNumber('profit-rate') || 0);
   updateCost();
-  logEvent('Bill of materials updated.');
+  logEvent(`Cost assumptions updated: ${minimumProduction.toLocaleString()}-cell planning quantity, ${profitRatePercent}% prime fee.`);
 });
 
 window.addEventListener('resize', resizeRenderer);
