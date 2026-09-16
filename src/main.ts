@@ -1276,8 +1276,8 @@ function animate(now: number): void {
   requireElement('sim-time').textContent = formatSimulationTime(simulationTime);
   resizeRenderer();
   controls.update();
-  if (camera.position.y < 1) {
-    camera.position.y = 1;
+  if (camera.position.y < 0.5) {
+    camera.position.y = 0.5;
     camera.lookAt(controls.target);
   }
   renderer.render(scene, camera);
