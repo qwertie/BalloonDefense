@@ -177,7 +177,7 @@ input[type="range"] { width: 100%; accent-color: var(--cyan); cursor: pointer; }
 
 .projectile-panel {
   position: absolute; left: 302px; right: 18px; bottom: 48px; min-height: 56px;
-  display: grid; grid-template-columns: 112px 1fr; align-items: stretch;
+  display: grid; grid-template-columns: 138px 1fr; align-items: stretch;
   background: rgba(7, 16, 20, .88); border: 1px solid var(--line); border-radius: 9px;
   backdrop-filter: blur(10px); overflow: hidden;
 }
