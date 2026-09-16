@@ -198,7 +198,7 @@ const controls = new OrbitControls(camera, canvas);
 controls.enableDamping = true;
 controls.dampingFactor = 0.07;
 controls.target.set(0, 7, 0);
-controls.maxPolarAngle = Math.PI * 0.54;
+controls.maxPolarAngle = Math.PI * 0.7;
 controls.minDistance = 15;
 controls.maxDistance = 900;
 
@@ -1276,8 +1276,8 @@ function animate(now: number): void {
   requireElement('sim-time').textContent = formatSimulationTime(simulationTime);
   resizeRenderer();
   controls.update();
-  if (camera.position.y < 0.55) {
-    camera.position.y = 0.55;
+  if (camera.position.y < 1) {
+    camera.position.y = 1;
     camera.lookAt(controls.target);
   }
   renderer.render(scene, camera);

@@ -28,6 +28,7 @@ npm run portable
 ## Model notes
 
 - One scene unit equals one kilometre. Balloon sizes and city buildings are visually exaggerated.
+- The orbit camera can descend to an absolute floor of 1 km above the simulated ground, including while zoomed close to the city.
 - Incoming events use exponentially distributed inter-arrival times, producing a Poisson process at the selected hourly rate.
 - Simulation speed switches automatically between two editable rates. The 20× default remains active while idle, before detection, and while a detected ballistic is still climbing. The 2× rate begins only after a detected ballistic passes apex and, when an engagement is feasible, after an interceptor has actually launched. Playback returns to the fast rate after the ballistic is removed.
 - Coverage is sampled across the selected polygon and reports both the protected fraction and the average number of ready interceptors in range.
