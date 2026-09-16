@@ -198,7 +198,7 @@ const controls = new OrbitControls(camera, canvas);
 controls.enableDamping = true;
 controls.dampingFactor = 0.07;
 controls.target.set(0, 7, 0);
-controls.maxPolarAngle = Math.PI * 0.49;
+controls.maxPolarAngle = Math.PI * 0.54;
 controls.minDistance = 15;
 controls.maxDistance = 900;
 
@@ -230,6 +230,7 @@ const expiringTelemetry: ExpiringTelemetry[] = [];
 
 const readyMaterial = new THREE.MeshStandardMaterial({ color: 0x58e1d3, emissive: 0x0b5b57, roughness: 0.42, metalness: 0.08 });
 const depletedMaterial = new THREE.MeshStandardMaterial({ color: 0x50666a, emissive: 0x111b1d, roughness: 0.75 });
+const descendingMaterial = new THREE.MeshStandardMaterial({ color: 0x173a70, emissive: 0x06162f, emissiveIntensity: 0.5, roughness: 0.68 });
 const incomingMaterial = new THREE.MeshStandardMaterial({ color: 0xff6f73, emissive: 0xaa1820, emissiveIntensity: 2.2 });
 const interceptorMaterial = new THREE.MeshStandardMaterial({ color: 0xf4bc5f, emissive: 0xc77616, emissiveIntensity: 2.1 });
 
@@ -662,7 +663,7 @@ function selectBalloons(point: THREE.Vector3, timeAvailable: number): BalloonNod
 }
 
 function consumeBalloon(balloon: BalloonNode): void {
-  const spent = createBalloonVisual(balloon.x, config.altitude, balloon.z, depletedMaterial);
+  const spent = createBalloonVisual(balloon.x, config.altitude, balloon.z, descendingMaterial);
   gridGroup.add(spent.group);
   descendingBalloons.push({
     group: spent.group,
@@ -1267,6 +1268,10 @@ function animate(now: number): void {
   requireElement('sim-time').textContent = formatSimulationTime(simulationTime);
   resizeRenderer();
   controls.update();
+  if (camera.position.y < 0.55) {
+    camera.position.y = 0.55;
+    camera.lookAt(controls.target);
+  }
   renderer.render(scene, camera);
   requestAnimationFrame(animate);
 }

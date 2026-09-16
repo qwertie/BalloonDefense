@@ -153,6 +153,7 @@ input[type="range"] { width: 100%; accent-color: var(--cyan); cursor: pointer; }
 .legend-dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; }
 .legend-dot.ready { background: var(--cyan); }
 .legend-dot.depleted { background: #607479; }
+.legend-dot.recovering { background: #173a70; box-shadow: 0 0 4px rgba(48, 93, 161, .65); }
 .legend-dot.incoming { background: var(--red); }
 .legend-dot.interceptor { background: var(--amber); }
 .legend-dot.radar { background: #9a9cff; box-shadow: 0 0 5px rgba(154, 156, 255, .8); }
