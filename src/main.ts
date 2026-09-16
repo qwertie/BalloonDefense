@@ -250,6 +250,12 @@ function formatCurrency(value: number): string {
   }).format(value);
 }
 
+function formatAltitude(kilometres: number, fractionDigits = 1): string {
+  const safeKilometres = Math.max(0, kilometres);
+  const feet = Math.round(safeKilometres * 3280.84);
+  return `${safeKilometres.toFixed(fractionDigits)} km · ${feet.toLocaleString()} ft`;
+}
+
 function formatSimulationTime(seconds: number): string {
   const total = Math.floor(seconds);
   const days = Math.floor(total / 86400);
@@ -1189,7 +1195,7 @@ function appendTelemetryCard(
   const altitude = document.createElement('div');
   altitude.className = 'projectile-altitude';
   const altitudeValue = document.createElement('b');
-  altitudeValue.textContent = `${Math.max(0, track.altitude).toFixed(1)} km`;
+  altitudeValue.textContent = formatAltitude(track.altitude);
   const altitudeLabel = document.createElement('label');
   altitudeLabel.textContent = 'Altitude';
   altitude.append(altitudeValue, altitudeLabel);
@@ -1293,7 +1299,7 @@ function updateControlOutputs(): void {
   requireElement('range-notice-output').textContent = `${fullRangeShot.minimumTime.toFixed(1)} s`;
   requireElement('rated-range-control').title = rangeRationale;
   requireElement('range-notice-row').title = rangeRationale;
-  requireElement('altitude-output').textContent = `${config.altitude} km`;
+  requireElement('altitude-output').textContent = formatAltitude(config.altitude, 0);
   requireElement('attack-output').textContent = `${config.attackRate} / hr`;
   requireElement('replenishment-output').textContent = `${config.replenishmentMinutes} min`;
   requireElement('idle-speed-output').textContent = `${config.idleSpeed}×`;

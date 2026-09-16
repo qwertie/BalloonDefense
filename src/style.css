@@ -186,7 +186,7 @@ input[type="range"] { width: 100%; accent-color: var(--cyan); cursor: pointer; }
 .projectile-heading small { color: var(--muted); font-size: 9px; }
 .projectile-list { min-width: 0; display: flex; align-items: stretch; gap: 1px; overflow-x: auto; }
 .projectile-empty { display: flex; align-items: center; padding: 0 13px; color: var(--muted); font-size: 10px; }
-.projectile-card { min-width: 162px; display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: auto 1fr; border-right: 1px solid var(--line); }
+.projectile-card { min-width: 238px; display: grid; grid-template-columns: .85fr 1.15fr; grid-template-rows: auto 1fr; border-right: 1px solid var(--line); }
 .projectile-card:last-child { border-right: 0; }
 .projectile-identity { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; gap: 7px; padding: 6px 8px 4px; color: var(--muted); font-size: 9px; }
 .projectile-identity strong { color: var(--text); font-weight: 500; }
