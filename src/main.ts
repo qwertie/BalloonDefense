@@ -873,7 +873,11 @@ function resolveAttack(index: number, defended: boolean): void {
     logEvent('Ballistic intercepted below the fleet layer.');
   } else {
     misses += 1;
-    const impactEffect = spawnEffect(attack.target, 0xff4e57, 1.65, attack.velocityKms);
+    attack.velocityKms.set(0, 0, 0);
+    attack.speedKmh = 0;
+    const impactPoint = attack.target.clone().setY(0.55);
+    const impactEffect = spawnEffect(impactPoint, 0xff4e57, 3.0, attack.velocityKms);
+    spawnEffect(impactPoint.clone().add(new THREE.Vector3(0, 0.12, 0)), 0xffb24a, 1.35, attack.velocityKms);
     const impactTelemetry: ExpiringTelemetry = {
       telemetryId: attack.telemetryId,
       kind: 'ballistic',
@@ -885,7 +889,7 @@ function resolveAttack(index: number, defended: boolean): void {
     };
     impactEffect.telemetry = impactTelemetry;
     expiringTelemetry.push(impactTelemetry);
-    logEvent('Impact inside the protected area. Coverage hole exposed.');
+    logEvent('Ground impact inside the protected area.');
   }
   removeMovingObject(attack);
   attack.interceptors.forEach(removeMovingObject);
@@ -1250,11 +1254,15 @@ function resizeRenderer(): void {
 function animate(now: number): void {
   const realDelta = Math.min(0.1, (now - lastFrameTime) / 1000);
   lastFrameTime = now;
-  const hasActiveTracks = attacks.some((attack) => attack.detected) || expiringTelemetry.length > 0;
-  const activeSpeed = hasActiveTracks ? config.trackedSpeed : config.idleSpeed;
+  const useTrackedSpeed = attacks.some((attack) => {
+    if (!attack.detected || attack.elapsed < attack.apexAt) return false;
+    if (!attack.defended) return true;
+    return attack.interceptors.some((interceptor) => attack.elapsed >= interceptor.launchAt);
+  });
+  const activeSpeed = useTrackedSpeed ? config.trackedSpeed : config.idleSpeed;
   const simulatedDelta = paused ? 0 : realDelta * activeSpeed;
-  requireElement('idle-speed-control').classList.toggle('active', !hasActiveTracks);
-  requireElement('tracked-speed-control').classList.toggle('active', hasActiveTracks);
+  requireElement('idle-speed-control').classList.toggle('active', !useTrackedSpeed);
+  requireElement('tracked-speed-control').classList.toggle('active', useTrackedSpeed);
   if (!paused) {
     let remaining = simulatedDelta;
     while (remaining > 0) {
