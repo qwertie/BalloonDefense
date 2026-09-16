@@ -126,8 +126,8 @@
               <input id="idle-speed" type="range" min="1" max="100" value="20" step="1" />
             </label>
             <label class="range-control speed-control" id="tracked-speed-control" for="tracked-speed" title="Slower playback used only while a detected ballistic is past apex. If defense is feasible, the switch also waits until an interceptor has actually launched. The highlighted speed control is currently active.">
-              <span>Tracked post-apex speed <output id="tracked-speed-output">2×</output></span>
-              <input id="tracked-speed" type="range" min="1" max="100" value="2" step="1" />
+              <span>Tracked post-apex speed <output id="tracked-speed-output">4×</output></span>
+              <input id="tracked-speed" type="range" min="1" max="100" value="4" step="1" />
             </label>
             <p class="substep-note" title="Dynamic feasibility uses the curved 3D path, at most 2 g acceleration, and at most 800 m/s. A candidate must fit both this time envelope and the rated horizontal range.">Rendered at display refresh rate with ≤1 simulated-second physics steps. Reachability screen: 2 g, 800 m/s maximum.</p>
             <p class="trajectory-note"><strong>Trajectory model:</strong> missiles fire 400–650 km away and follow a no-drag, constant-gravity parabola. Detection occurs when either enabled radar satisfies both slant-range and Earth-horizon checks. Pre-detection speed is hidden.</p>

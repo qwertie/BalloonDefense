@@ -130,7 +130,7 @@ const config: Configuration = {
   attackRate: 6,
   replenishmentMinutes: 30,
   idleSpeed: 20,
-  trackedSpeed: 2,
+  trackedSpeed: 4,
   radarRange: 300,
   threatBearing: 45,
   threatWidth: 90,
